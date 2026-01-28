@@ -4,15 +4,536 @@ import {
   Layout, Code, ChevronLeft, ChevronRight, Presentation, 
   Check, Copy, Terminal 
 } from 'lucide-react';
-
+import PptxGenJS from 'pptxgenjs';
 import { slides } from './data';
-import { generatePythonScript } from './utils/generatePythonScript';
-import { generateClientPPTX } from './utils/generateClientPPTX';
-import { SlideData } from './types';
-import { THEME, FOOTER_TEXT } from './constants';
 
 // ----------------------------------------------------------------------------
-// SlidePreview Component
+// TYPE DEFINITIONS (Inlined)
+// ----------------------------------------------------------------------------
+
+enum SlideType {
+  TITLE = 'title',
+  CONTENT = 'content'
+}
+
+type LayoutType = 'standard' | 'title' | 'split' | 'grid' | 'image-focus' | 'quadrant' | 'quote';
+
+interface SlideData {
+  id: number;
+  type: SlideType;
+  layout: LayoutType;
+  title: string;
+  subtitle?: string;
+  points?: string[];
+  footer?: string;
+  imageUrl?: string;
+  quoteAuthor?: string;
+}
+
+interface Colors {
+  primary: string;
+  secondary: string;
+  text: string;
+  accent: string;
+}
+
+// ----------------------------------------------------------------------------
+// CONSTANTS (Inlined)
+// ----------------------------------------------------------------------------
+
+const THEME: Colors = {
+  primary: '#009EDB',    // Official UN Blue
+  secondary: '#D4AF37',  // Metallic Gold
+  text: '#F0F4F8',       // Ice White
+  accent: '#00B4D8',     // Lighter Cyan
+};
+
+const FOOTER_TEXT = "UN Strategic Vision 2024";
+
+// ----------------------------------------------------------------------------
+// UTILITY: Python Script Generator (Inlined)
+// ----------------------------------------------------------------------------
+
+const generatePythonScript = (slidesList: any[]): string => {
+  // Convert HEX to RGB tuple for Python
+  const hexToRgb = (hex: string) => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `${r}, ${g}, ${b}`;
+  };
+
+  const primaryRgb = hexToRgb(THEME.primary);
+  const secondaryRgb = hexToRgb(THEME.secondary);
+  const accentRgb = hexToRgb(THEME.accent);
+  
+  let script = `import requests
+from io import BytesIO
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.enum.shapes import MSO_SHAPE
+
+# --- 1. SETUP & CONFIGURATION ---
+prs = Presentation()
+prs.slide_width = Inches(13.333)
+prs.slide_height = Inches(7.5)
+
+# Brand Colors (Diplomatic Luxury Theme)
+C_PRI = RGBColor(${primaryRgb})    # UN Blue
+C_SEC = RGBColor(${secondaryRgb})  # Metallic Gold
+C_ACCENT = RGBColor(${accentRgb})  # Cyan Glow
+C_WHITE = RGBColor(240, 244, 248)  # Ice White
+C_DARK = RGBColor(10, 25, 47)      # Deep Navy
+C_TRANS_BLACK = RGBColor(0, 0, 0)
+
+# --- 2. HELPER FUNCTIONS ---
+
+def add_remote_image(slide, url, left, top, width, height):
+    """Downloads an image from a URL and adds it to the slide."""
+    try:
+        response = requests.get(url, timeout=10)
+        img_stream = BytesIO(response.content)
+        pic = slide.shapes.add_picture(img_stream, left, top, width, height)
+        return pic
+    except Exception as e:
+        print(f"Could not download image: {e}")
+        # Fallback: Deep Navy Box
+        shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = C_DARK
+        return shape
+
+def add_overlay(slide, left, top, width, height, transparency=0.4):
+    """Adds a dark overlay to make text pop over images."""
+    shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
+    shape.fill.solid()
+    shape.fill.fore_color.rgb = C_TRANS_BLACK
+    shape.fill.transparency = transparency
+    shape.line.fill.background()
+
+def add_text(slide, text, left, top, width, height, font_size, bold=False, color=C_WHITE, align=PP_ALIGN.LEFT, font_name='Arial'):
+    tb = slide.shapes.add_textbox(left, top, width, height)
+    p = tb.text_frame.paragraphs[0]
+    p.text = text
+    p.font.name = font_name
+    p.font.size = Pt(font_size)
+    p.font.bold = bold
+    p.font.color.rgb = color
+    p.alignment = align
+    return tb
+
+# --- 3. LAYOUT GENERATORS ---
+
+def create_cinematic_title(slide, data):
+    if data.get('imageUrl'):
+        add_remote_image(slide, data['imageUrl'], 0, 0, Inches(13.333), Inches(7.5))
+    
+    add_overlay(slide, 0, 0, Inches(13.333), Inches(7.5), 0.3)
+    
+    # UN Badge Top
+    badge = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(5.66), Inches(1), Inches(2), Inches(0.4))
+    badge.fill.solid()
+    badge.fill.fore_color.rgb = C_TRANS_BLACK
+    badge.fill.transparency = 0.3
+    badge.line.color.rgb = C_SEC
+    badge.text_frame.text = "UNITED NATIONS"
+    badge.text_frame.paragraphs[0].font.size = Pt(10)
+    badge.text_frame.paragraphs[0].font.color.rgb = C_SEC
+    
+    # Big Title
+    add_text(slide, data['title'].upper(), Inches(0.5), Inches(2.5), Inches(12.333), Inches(2), 72, True, C_WHITE, PP_ALIGN.CENTER, 'Arial Black')
+    
+    # Accent Bar
+    line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(5.66), Inches(4.8), Inches(2), Inches(0.05))
+    line.fill.solid()
+    line.fill.fore_color.rgb = C_PRI
+    line.line.fill.background()
+
+    # Subtitle
+    add_text(slide, data.get('subtitle', ''), Inches(1), Inches(5), Inches(11.333), Inches(1), 24, False, C_WHITE, PP_ALIGN.CENTER)
+
+def create_split_layout(slide, data):
+    # Left Half Image
+    if data.get('imageUrl'):
+        add_remote_image(slide, data['imageUrl'], 0, 0, Inches(6.6), Inches(7.5))
+        add_overlay(slide, 0, 0, Inches(6.6), Inches(7.5), 0.1)
+    
+    # Right Half Dark
+    bg = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.6), 0, Inches(6.8), Inches(7.5))
+    bg.fill.solid()
+    bg.fill.fore_color.rgb = C_DARK
+    bg.line.fill.background()
+    
+    # Gold Line Vertical
+    line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.6), 0, Inches(0.05), Inches(7.5))
+    line.fill.solid()
+    line.fill.fore_color.rgb = C_SEC
+    
+    add_text(slide, data['title'], Inches(7.1), Inches(1), Inches(5.5), Inches(1.5), 44, True, C_WHITE)
+    
+    # Gold Underline Title
+    uline = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(7.1), Inches(2.2), Inches(1.5), Inches(0.05))
+    uline.fill.solid()
+    uline.fill.fore_color.rgb = C_SEC
+    
+    y = 3.0
+    for point in data.get('points', []):
+        # Blue Diamond Bullet
+        dot = slide.shapes.add_shape(MSO_SHAPE.DIAMOND, Inches(7.1), Inches(y + 0.1), Inches(0.15), Inches(0.15))
+        dot.fill.solid()
+        dot.fill.fore_color.rgb = C_PRI
+        dot.line.fill.background()
+        
+        add_text(slide, point, Inches(7.4), Inches(y), Inches(5), Inches(0.8), 20, False, C_WHITE)
+        y += 0.8
+
+def create_quadrant_layout(slide, data):
+    # Background
+    bg = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(13.333), Inches(7.5))
+    bg.fill.solid()
+    bg.fill.fore_color.rgb = C_DARK
+    
+    add_text(slide, data['title'].upper(), Inches(0), Inches(0.5), Inches(13.333), Inches(1), 40, True, C_WHITE, PP_ALIGN.CENTER)
+    
+    points = data.get('points', [])
+    positions = [
+        (Inches(1), Inches(2)), (Inches(7), Inches(2)),
+        (Inches(1), Inches(4.8)), (Inches(7), Inches(4.8))
+    ]
+    
+    for i, point in enumerate(points):
+        if i >= 4: break
+        left, top = positions[i]
+        
+        # Box
+        box = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, Inches(5.3), Inches(2.2))
+        box.fill.solid()
+        box.fill.fore_color.rgb = C_TRANS_BLACK
+        box.fill.transparency = 0.5 # Darker
+        box.line.color.rgb = C_WHITE
+        box.line.width = Pt(0.5)
+        
+        # Number
+        add_text(slide, f"0{i+1}", left + Inches(0.2), top + Inches(0.2), Inches(1), Inches(0.5), 24, True, C_SEC, PP_ALIGN.LEFT, 'Times New Roman')
+        
+        # Text
+        add_text(slide, point, left + Inches(0.2), top + Inches(0.8), Inches(4.9), Inches(1), 24, True, C_WHITE, PP_ALIGN.CENTER)
+
+def create_quote_layout(slide, data):
+    if data.get('imageUrl'):
+        add_remote_image(slide, data['imageUrl'], 0, 0, Inches(13.333), Inches(7.5))
+    add_overlay(slide, 0, 0, Inches(13.333), Inches(7.5), 0.7)
+    
+    text = data.get('points', [''])[0]
+    author = data.get('quoteAuthor', '')
+    
+    # Big Quote Mark
+    add_text(slide, '"', Inches(1), Inches(1.5), Inches(1), Inches(1), 100, True, C_SEC, PP_ALIGN.CENTER, 'Times New Roman')
+    
+    # Quote Text
+    add_text(slide, text, Inches(2), Inches(2.5), Inches(9.333), Inches(3), 44, True, C_WHITE, PP_ALIGN.CENTER, 'Times New Roman')
+    
+    # Author
+    add_text(slide, author.upper(), Inches(2), Inches(5.5), Inches(9.333), Inches(1), 16, True, C_SEC, PP_ALIGN.CENTER)
+
+def create_grid_layout(slide, data):
+    # Left Dark Panel
+    bg = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(4), Inches(7.5))
+    bg.fill.solid()
+    bg.fill.fore_color.rgb = C_DARK
+    
+    # Right Image Panel
+    if data.get('imageUrl'):
+        add_remote_image(slide, data['imageUrl'], Inches(4), 0, Inches(9.333), Inches(7.5))
+        add_overlay(slide, Inches(4), 0, Inches(9.333), Inches(7.5), 0.2)
+    
+    # Title on Left
+    tb = slide.shapes.add_textbox(Inches(0.5), Inches(3), Inches(3), Inches(3))
+    p = tb.text_frame.paragraphs[0]
+    p.text = data['title']
+    p.font.bold = True
+    p.font.size = Pt(40)
+    p.font.color.rgb = C_WHITE
+    p.alignment = PP_ALIGN.LEFT
+    
+    # Grid Content Overlay on Right
+    points = data.get('points', [])
+    positions = [
+        (Inches(4.5), Inches(1)), (Inches(8.5), Inches(1)),
+        (Inches(4.5), Inches(4)), (Inches(8.5), Inches(4))
+    ]
+    
+    for i, point in enumerate(points):
+        if i >= 4: break
+        left, top = positions[i]
+        
+        # Glass Card
+        card = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, Inches(3.5), Inches(2.5))
+        card.fill.solid()
+        card.fill.fore_color.rgb = C_DARK
+        card.fill.transparency = 0.2
+        card.line.color.rgb = C_WHITE
+        
+        add_text(slide, f"0{i+1}", left + Inches(0.2), top + Inches(0.2), Inches(0.5), Inches(0.5), 24, True, C_WHITE)
+        add_text(slide, point, left + Inches(0.2), top + Inches(1), Inches(3.1), Inches(1), 20, True, C_WHITE, PP_ALIGN.CENTER)
+
+def create_image_focus(slide, data):
+    if data.get('imageUrl'):
+        add_remote_image(slide, data['imageUrl'], 0, 0, Inches(13.333), Inches(7.5))
+    add_overlay(slide, 0, 0, Inches(13.333), Inches(7.5), 0.5)
+    
+    # Solid Card
+    box = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1), Inches(1.5), Inches(5.5), Inches(5))
+    box.fill.solid()
+    box.fill.fore_color.rgb = C_DARK
+    box.fill.transparency = 0.1
+    box.line.color.rgb = C_SEC
+    
+    add_text(slide, "KEY OBJECTIVES", Inches(1.5), Inches(1.8), Inches(4), Inches(0.5), 10, True, C_PRI)
+    add_text(slide, data['title'], Inches(1.5), Inches(2.2), Inches(4.5), Inches(1.2), 40, True, C_WHITE)
+    
+    y = 3.6
+    for point in data.get('points', []):
+        add_text(slide, point, Inches(1.5), y, Inches(4.5), Inches(0.6), 20, False, C_WHITE)
+        y += 0.7
+
+# --- 4. MAIN LOOP ---
+def create_slides():
+    blank_layout = prs.slide_layouts[6]
+`;
+
+  slidesList.forEach((slide, index) => {
+    script += `
+    # Slide ${index + 1}
+    slide = prs.slides.add_slide(blank_layout)
+    data = {
+        'title': "${slide.title}",
+        'subtitle': "${slide.subtitle || ''}",
+        'imageUrl': "${slide.imageUrl || ''}",
+        'quoteAuthor': "${slide.quoteAuthor || ''}",
+        'points': [${slide.points ? slide.points.map((p: string) => `"${p}"`).join(', ') : ''}]
+    }
+    `;
+
+    if (slide.layout === 'title') {
+      script += `create_cinematic_title(slide, data)\n`;
+    } else if (slide.layout === 'split') {
+      script += `create_split_layout(slide, data)\n`;
+    } else if (slide.layout === 'quadrant') {
+      script += `create_quadrant_layout(slide, data)\n`;
+    } else if (slide.layout === 'quote') {
+      script += `create_quote_layout(slide, data)\n`;
+    } else if (slide.layout === 'grid') {
+      script += `create_grid_layout(slide, data)\n`;
+    } else {
+      script += `create_image_focus(slide, data)\n`;
+    }
+  });
+
+  script += `
+    # Save
+    prs.save('UN_Diplomatic_Presentation.pptx')
+    print("Generated UN_Diplomatic_Presentation.pptx")
+
+if __name__ == "__main__":
+    create_slides()
+`;
+
+  return script;
+};
+
+// ----------------------------------------------------------------------------
+// UTILITY: Client-Side PPTX Generator (Inlined)
+// ----------------------------------------------------------------------------
+
+const generateClientPPTX = async (slidesList: any[]) => {
+  const pres = new PptxGenJS();
+  
+  // Configure Presentation
+  pres.layout = 'LAYOUT_16x9';
+  pres.title = 'UN Diplomatic Presentation';
+  pres.company = 'United Nations';
+
+  const C_PRI = THEME.primary;
+  const C_SEC = THEME.secondary;
+  const C_WHITE = THEME.text;
+  const C_DARK = "0A192F"; // Deep Navy
+  
+  // Helper to add footer
+  const addFooter = (slide: PptxGenJS.Slide, index: number) => {
+    slide.addText(
+      [
+        { text: `${index}`, options: { color: C_WHITE, fontSize: 10 } },
+        { text: `  |  ${FOOTER_TEXT}`, options: { color: C_PRI, fontSize: 10 } }
+      ],
+      { x: 0.5, y: '95%', w: '90%', align: 'left' }
+    );
+  };
+
+  for (let i = 0; i < slidesList.length; i++) {
+    const data = slidesList[i];
+    const slide = pres.addSlide();
+    
+    // Background Dark
+    slide.background = { color: C_DARK };
+
+    // --- LAYOUT LOGIC ---
+
+    if (data.layout === 'title') {
+      // Background Image
+      if (data.imageUrl) {
+        slide.addImage({ path: data.imageUrl, x: 0, y: 0, w: '100%', h: '100%' });
+      }
+      // Overlay
+      slide.addShape('rect', { x: 0, y: 0, w: '100%', h: '100%', fill: { color: '000000', transparency: 30 } });
+
+      // UN Badge
+      slide.addShape('roundRect', { x: '42%', y: 1, w: '16%', h: 0.5, fill: { color: '000000', transparency: 30 }, line: { color: C_SEC, width: 1 } });
+      slide.addText("UNITED NATIONS", { x: '42%', y: 1.1, w: '16%', align: 'center', fontSize: 12, color: C_SEC, bold: true });
+
+      // Title
+      slide.addText(data.title.toUpperCase(), { x: 0.5, y: 2.5, w: '90%', align: 'center', fontSize: 60, color: C_WHITE, bold: true, fontFace: 'Arial Black' });
+      
+      // Accent Line
+      slide.addShape('rect', { x: '42%', y: 4.8, w: '16%', h: 0.05, fill: { color: C_PRI } });
+
+      // Subtitle
+      if (data.subtitle) {
+        slide.addText(data.subtitle, { x: 1, y: 5.2, w: '80%', align: 'center', fontSize: 24, color: C_WHITE });
+      }
+
+    } else if (data.layout === 'split') {
+      // Left Image
+      if (data.imageUrl) {
+        slide.addImage({ path: data.imageUrl, x: 0, y: 0, w: '50%', h: '100%' });
+        slide.addShape('rect', { x: 0, y: 0, w: '50%', h: '100%', fill: { color: '000000', transparency: 10 } });
+      }
+      
+      // Vertical Gold Line
+      slide.addShape('rect', { x: '50%', y: 0, w: 0.05, h: '100%', fill: { color: C_SEC } });
+
+      // Right Content
+      slide.addText(data.title, { x: '53%', y: 0.8, w: '45%', fontSize: 40, color: C_WHITE, bold: true });
+      slide.addShape('rect', { x: '53%', y: 1.8, w: '15%', h: 0.05, fill: { color: C_SEC } });
+
+      if (data.points) {
+        data.points.forEach((point: string, idx: number) => {
+          slide.addText(point, { x: '53%', y: 2.5 + (idx * 0.8), w: '45%', fontSize: 18, color: C_WHITE, bullet: { type: 'number', numberType: 'arabicPeriod' } });
+        });
+      }
+      addFooter(slide, i + 1);
+
+    } else if (data.layout === 'quadrant') {
+      if (data.imageUrl) {
+        slide.addImage({ path: data.imageUrl, x: 0, y: 0, w: '100%', h: '100%' });
+      }
+      slide.addShape('rect', { x: 0, y: 0, w: '100%', h: '100%', fill: { color: C_DARK, transparency: 10 } }); // Darker tint
+
+      // Title
+      slide.addText(data.title.toUpperCase(), { x: 0, y: 0.4, w: '100%', align: 'center', fontSize: 36, color: C_WHITE, bold: true });
+
+      // Grid
+      const positions = [
+        { x: 1, y: 1.8 }, { x: 6.5, y: 1.8 },
+        { x: 1, y: 4.5 }, { x: 6.5, y: 4.5 }
+      ];
+
+      if (data.points) {
+        data.points.forEach((point: string, idx: number) => {
+          if (idx < 4) {
+            const pos = positions[idx];
+            // Box
+            slide.addShape('rect', { x: pos.x, y: pos.y, w: 4.5, h: 2.2, fill: { color: '000000', transparency: 40 }, line: { color: C_WHITE, width: 0.5 } });
+            // Number
+            slide.addText(`0${idx + 1}`, { x: pos.x + 0.2, y: pos.y + 0.2, fontSize: 24, color: C_SEC, bold: true });
+            // Text
+            slide.addText(point, { x: pos.x + 0.2, y: pos.y + 0.8, w: 4.1, align: 'center', fontSize: 20, color: C_WHITE, bold: true });
+          }
+        });
+      }
+      addFooter(slide, i + 1);
+
+    } else if (data.layout === 'quote') {
+      if (data.imageUrl) {
+        slide.addImage({ path: data.imageUrl, x: 0, y: 0, w: '100%', h: '100%' });
+      }
+      slide.addShape('rect', { x: 0, y: 0, w: '100%', h: '100%', fill: { color: '000000', transparency: 60 } });
+
+      // Quote Mark
+      slide.addText('"', { x: 1, y: 1.5, fontSize: 80, color: C_SEC, align: 'center' });
+
+      // Text
+      if (data.points && data.points[0]) {
+        slide.addText(data.points[0], { x: 2, y: 2.5, w: '60%', align: 'center', fontSize: 36, color: C_WHITE, italic: true, fontFace: 'Times New Roman' });
+      }
+
+      // Author
+      if (data.quoteAuthor) {
+        slide.addText(data.quoteAuthor.toUpperCase(), { x: 2, y: 5.5, w: '60%', align: 'center', fontSize: 16, color: C_SEC, bold: true });
+      }
+      addFooter(slide, i + 1);
+
+    } else if (data.layout === 'grid') {
+       // Left Panel
+       slide.addShape('rect', { x: 0, y: 0, w: '35%', h: '100%', fill: { color: C_DARK } });
+       
+       // Image Right
+       if (data.imageUrl) {
+         slide.addImage({ path: data.imageUrl, x: '35%', y: 0, w: '65%', h: '100%' });
+         slide.addShape('rect', { x: '35%', y: 0, w: '65%', h: '100%', fill: { color: '000000', transparency: 20 } });
+       }
+
+       // Title Left
+       slide.addText(data.title, { x: 0.5, y: 2.5, w: '30%', fontSize: 36, color: C_WHITE, bold: true });
+
+       // Cards Right
+       const positions = [
+         { x: 4.2, y: 1 }, { x: 7.8, y: 1 },
+         { x: 4.2, y: 4 }, { x: 7.8, y: 4 }
+       ];
+       
+       if (data.points) {
+         data.points.forEach((point: string, idx: number) => {
+            if (idx < 4) {
+              const pos = positions[idx];
+              slide.addShape('rect', { x: pos.x, y: pos.y, w: 3.2, h: 2.5, fill: { color: C_DARK, transparency: 20 }, line: { color: C_WHITE } });
+              slide.addText(`0${idx + 1}`, { x: pos.x + 0.1, y: pos.y + 0.1, fontSize: 14, color: C_WHITE });
+              slide.addText(point, { x: pos.x + 0.2, y: pos.y + 1, w: 2.8, align: 'center', fontSize: 18, color: C_WHITE, bold: true });
+            }
+         });
+       }
+       addFooter(slide, i + 1);
+
+    } else {
+      // Image Focus / Standard
+      if (data.imageUrl) {
+        slide.addImage({ path: data.imageUrl, x: 0, y: 0, w: '100%', h: '100%' });
+      }
+      slide.addShape('rect', { x: 0, y: 0, w: '100%', h: '100%', fill: { color: '000000', transparency: 40 } });
+
+      // Content Box
+      slide.addShape('rect', { x: 1, y: 1.5, w: 5.5, h: 5, fill: { color: C_DARK, transparency: 10 }, line: { color: C_SEC } });
+      
+      slide.addText("KEY OBJECTIVES", { x: 1.5, y: 1.8, fontSize: 10, color: C_PRI, bold: true });
+      slide.addText(data.title, { x: 1.5, y: 2.2, w: 4.5, fontSize: 36, color: C_WHITE, bold: true });
+
+      if (data.points) {
+        data.points.forEach((point: string, idx: number) => {
+          slide.addText(point, { x: 1.5, y: 3.5 + (idx * 0.7), w: 4.5, fontSize: 18, color: C_WHITE, bullet: { type: 'number' } });
+        });
+      }
+      addFooter(slide, i + 1);
+    }
+  }
+
+  // Generate File
+  await pres.writeFile({ fileName: 'UN_Diplomatic_Presentation.pptx' });
+};
+
+// ----------------------------------------------------------------------------
+// COMPONENT: SlidePreview (Inlined)
 // ----------------------------------------------------------------------------
 
 interface SlidePreviewProps {
@@ -100,7 +621,7 @@ const SlidePreview: React.FC<SlidePreviewProps> = ({ slide }) => {
                 <span className="block h-1 w-24 bg-[#D4AF37] mt-4"></span>
               </h2>
               <div className="space-y-8 relative z-10">
-                {slide.points?.map((point, idx) => (
+                {slide.points?.map((point: string, idx: number) => (
                   <motion.div 
                     key={idx}
                     initial={{ x: 20, opacity: 0 }}
@@ -124,7 +645,7 @@ const SlidePreview: React.FC<SlidePreviewProps> = ({ slide }) => {
                   <h2 className="text-4xl font-bold uppercase tracking-[0.2em] text-white drop-shadow-lg">{slide.title}</h2>
               </div>
               <div className="grid grid-cols-2 grid-rows-2 flex-1 gap-6">
-                  {slide.points?.map((point, idx) => (
+                  {slide.points?.map((point: string, idx: number) => (
                       <motion.div 
                         key={idx}
                         initial={{ opacity: 0 }}
@@ -178,7 +699,7 @@ const SlidePreview: React.FC<SlidePreviewProps> = ({ slide }) => {
              </div>
             
             <div className="relative z-10 grid grid-cols-2 md:grid-cols-4 gap-6 flex-1 items-center">
-              {slide.points?.map((point, idx) => (
+              {slide.points?.map((point: string, idx: number) => (
                 <motion.div 
                   key={idx}
                   whileHover={{ y: -5 }}
@@ -205,7 +726,7 @@ const SlidePreview: React.FC<SlidePreviewProps> = ({ slide }) => {
                   {slide.title}
                 </h2>
                 <div className="space-y-6">
-                  {slide.points?.map((point, idx) => (
+                  {slide.points?.map((point: string, idx: number) => (
                     <div key={idx} className="flex gap-4 items-center group">
                       <div className="w-8 h-[1px] bg-white/30 group-hover:bg-[#D4AF37] transition-colors"></div>
                       <p className="text-xl text-gray-200 font-light">{point}</p>
@@ -235,7 +756,7 @@ const SlidePreview: React.FC<SlidePreviewProps> = ({ slide }) => {
 };
 
 // ----------------------------------------------------------------------------
-// PythonCodeViewer Component
+// COMPONENT: PythonCodeViewer (Inlined)
 // ----------------------------------------------------------------------------
 
 interface PythonCodeViewerProps {
@@ -249,6 +770,18 @@ const PythonCodeViewer: React.FC<PythonCodeViewerProps> = ({ code }) => {
     navigator.clipboard.writeText(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Simple syntax highlighting helper
+  const syntaxHighlight = (code: string): string => {
+    return code
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/(from|import|def|return|if|else|for|in|class)/g, '<span class="text-purple-400">$1</span>')
+      .replace(/('.*?')|(".*?")/g, '<span class="text-green-400">$1</span>')
+      .replace(/\b(\d+)\b/g, '<span class="text-orange-400">$1</span>')
+      .replace(/#.*/g, '<span class="text-gray-500">$1</span>')
+      .replace(/\b(Presentation|Inches|Pt|RGBColor)\b/g, '<span class="text-yellow-400">$1</span>');
   };
 
   return (
@@ -275,20 +808,8 @@ const PythonCodeViewer: React.FC<PythonCodeViewerProps> = ({ code }) => {
   );
 };
 
-// Simple syntax highlighting helper
-function syntaxHighlight(code: string): string {
-  return code
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/(from|import|def|return|if|else|for|in|class)/g, '<span class="text-purple-400">$1</span>')
-    .replace(/('.*?')|(".*?")/g, '<span class="text-green-400">$1</span>')
-    .replace(/\b(\d+)\b/g, '<span class="text-orange-400">$1</span>')
-    .replace(/#.*/g, '<span class="text-gray-500">$1</span>')
-    .replace(/\b(Presentation|Inches|Pt|RGBColor)\b/g, '<span class="text-yellow-400">$1</span>');
-}
-
 // ----------------------------------------------------------------------------
-// Main App Component
+// MAIN APP COMPONENT
 // ----------------------------------------------------------------------------
 
 const App: React.FC = () => {
@@ -443,5 +964,3 @@ const App: React.FC = () => {
     </div>
   );
 };
-
-export default App;
